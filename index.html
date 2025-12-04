@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Мини-мессенджер — с гостевым чатом (онлайн)</title>
+<style>
+    :root{
+        --accent:#ff8f70;
+        --accent-dark:#ff6f50;
+        --bg:#f2f2f2;
+        --card:#fff;
+        --text:#222;
+    }
+
+    *{box-sizing:border-box;}
+    body{
+        margin:0;
+        font-family: Inter, Arial, sans-serif;
+        background:var(--bg);
+        color:var(--text);
+        min-height:100vh;
+    }
+
+    /* TOP MENU */
+    #top-menu{
+        display:flex;
+        justify-content:space-around;
+        background:var(--accent);
+        padding:12px;
+        position:fixed;
+        top:0;
+        left:0;
+        right:0;
+        z-index:50;
+        gap:8px;
+    }
+    #top-menu button{
+        background:var(--card);
+        border:none;
+        padding:8px 12px;
+        border-radius:10px;
+        cursor:pointer;
+        font-weight:600;
+    }
+    #top-menu button:hover{ background:#fff6f2; }
+
+    /* pages */
+    .page{ display:none; padding-top:70px; min-height: calc(100vh - 70px); }
+    .page.active{ display:block; }
+
+    .center {
+        max-width:1000px;
+        margin:20px auto;
+        padding:18px;
+    }
+
+    .card{
+        background:var(--card);
+        padding:16px;
+        border-radius:12px;
+        box-shadow:0 6px 18px rgba(0,0,0,0.06);
+    }
+
+    /* Auth forms */
+    .auth-grid{ max-width:920px; margin:40px auto; display:grid; grid-template-columns:1fr 1fr 380px; gap:12px; align-items:start; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="file"]{
+        width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;
+    }
+    .muted{ color:#666; font-size:13px; }
+
+    /* Chats layout */
+    #chat-layout{ display:flex; gap:16px; align-items:flex-start; }
+    #chat-list-box{ width:34%; min-width:260px; max-height:72vh; overflow:auto; }
+    #chat-box{ flex:1; min-height:72vh; display:flex; flex-direction:column; gap:8px; }
+
+    .chat-item{
+        display:flex; align-items:center; gap:10px; padding:10px; border-radius:10px;
+        background:#fff0ea; margin-bottom:10px; cursor:pointer;
+    }
+    .chat-item:hover{ background:#ffd9c8; }
+    .chat-item.active{ background:var(--accent-dark); color:white; }
+
+    .avatar-sm{ width:48px; height:48px; border-radius:50%; background:#fff; border:2px solid var(--accent); background-size:cover; background-position:center; flex-shrink:0; }
+    .avatar-lg{ width:110px; height:110px; border-radius:50%; background:#fff; border:3px solid var(--accent); background-size:cover; background-position:center; display:block; margin:0 auto; }
+
+    /* last message + time */
+    .chat-meta{ display:flex; justify-content:space-between; width:100%; }
+    .chat-last{ color:#555; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+    .chat-time{ color:#888; font-size:12px; }
+
+    #chat-window{
+        flex:1; overflow:auto; padding:10px; background:#fbfbfb; border-radius:10px;
+    }
+    .message{
+        display:inline-block;
+        padding:10px 12px; margin:8px 0; border-radius:14px; background:var(--accent);
+        color:white; max-width:70%; animation:pop .2s ease;
+    }
+    .message.me{ background:#7ad7ff; color:#003; margin-left:auto; }
+    @keyframes pop{ from{ transform:scale(.8); opacity:0 } to{ transform:scale(1); opacity:1 } }
+
+    .controls{ display:flex; gap:8px; align-items:center; }
+    .controls input{ flex:1; padding:10px; border-radius:8px; border:1px solid #ddd; }
+
+    .typing-status{ font-size:13px; color:#666; height:16px; margin-left:4px; }
+
+    /* profile friends list */
+    #friends-list li{ list-style:none; padding:6px 0; border-bottom:1px dashed #eee; display:flex; justify-content:space-between; align-items:center; }
+
+    /* small helpers */
+    .row{ display:flex; gap:10px; align-items:center; }
+    .right{ margin-left:auto; }
+
+    /* logout button style */
+    .btn-danger{ background:#ff6b6b; color:white; border:none; padding:8px 10px; border-radius:8px; cursor:pointer; }
+
+    /* dark theme (per user) */
+    .dark{
+        --accent:#4a8cff;
+        --accent-dark:#2b6fdd;
+        --bg:#121217;
+        --card:#1b1b22;
+        --text:#e6e6e9;
+    }
+    .dark .card{ box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+    .dark input{ background:#28282e; color:var(--text); border:1px solid #333; }
+
+    /* responsive */
+    @media (max-width:900px){
+        .auth-grid{ grid-template-columns:1fr; }
+        #chat-layout{ flex-direction:column; }
+        #chat-list-box{ width:100%; max-height:none; }
+        #chat-box{ width:100%; }
+    }
+</style>
+</head>
+<body>
+
+<!-- TOP MENU -->
+<div id="top-menu" style="display:none;">
+    <button onclick="openPage('main')">Главная</button>
+    <button onclick="openPage('chats')">Чаты</button>
+    <button onclick="openPage('clock')">Часы</button>
+    <button onclick="openPage('profile')">Профиль</button>
+    <button id="theme-toggle" onclick="toggleTheme()">Тема</button>
+</div>
+
+<!-- ---------- AUTH: Login & Register & Guest ----------- -->
+<div id="auth" class="page active">
+    <div class="auth-grid">
+        <div class="card">
+            <h2 style="margin:0 0 6px 0;">Вход</h2>
+            <div class="muted">Если у тебя уже есть аккаунт — войди</div>
+            <input id="login-email" type="email" placeholder="Email" />
+            <input id="login-password" type="password" placeholder="Пароль" />
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button onclick="login()" style="flex:1">Войти</button>
+                <button onclick="showRegister()" style="flex:1;background:#fff;border:1px solid #ddd">Регистрация</button>
+            </div>
+            <div id="login-error" class="muted" style="color:#b00020;margin-top:8px"></div>
+
+            <hr style="margin:12px 0">
+            <div class="muted">Хочешь просто поболтать без регистрации?</div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <input id="guest-nick" placeholder="Ваш ник (гость)" />
+                <button onclick="enterAsGuest()">Поговорить</button>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">Как гость — твой ник будет виден другим, но профиль не сохраняется как аккаунт (сессии гостя сохраняются локально).</div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin:0 0 6px 0;">Регистрация</h2>
+            <div class="muted">Создать аккаунт: имя, email и пароль</div>
+            <input id="reg-name" type="text" placeholder="Имя" />
+            <input id="reg-email" type="email" placeholder="Email" />
+            <input id="reg-pass" type="password" placeholder="Пароль" />
+            <input id="reg-pass2" type="password" placeholder="Повторите пароль" />
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button onclick="registerUser()" style="flex:1">Зарегистрироваться</button>
+                <button onclick="showLogin()" style="flex:1;background:#fff;border:1px solid #ddd">Уже есть</button>
+            </div>
+            <div id="reg-error" class="muted" style="color:#b00020;margin-top:8px"></div>
+        </div>
+
+        <div class="card">
+            <h3>Демо / помощь</h3>
+            <p class="muted">Можно зарегистрироваться, либо войти как гость. Сеансы гостей и аккаунты хранятся в localStorage.</p>
+            <p class="muted">Если хочешь — могу добавить удалённое хранилище позже.</p>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- MAIN (after login) ---------- -->
+<div id="main" class="page center">
+    <div class="card">
+        <h2>Главная</h2>
+        <p>Добро пожаловать!</p>
+        <div class="row" style="margin-top:10px;">
+            <div style="flex:1">
+                <div><b>Пользователь:</b> <span id="me-name"></span></div>
+                <div class="muted" id="me-email"></div>
+            </div>
+            <div style="width:130px">
+                <div id="me-avatar" class="avatar-sm" style="width:86px;height:86px;border-radius:50%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- CHATS ---------- -->
+<div id="chats" class="page center">
+    <div class="card" id="chat-layout">
+        <!-- left -->
+        <div id="chat-list-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 style="margin:0">Пользователи</h3>
+                <div class="muted" style="font-size:13px">Нажмите для чата</div>
+            </div>
+            <div id="chat-list"></div>
+        </div>
+
+        <!-- center -->
+        <div id="chat-box">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div id="chat-title-avatar" class="avatar-sm"></div>
+                <div>
+                    <div id="chat-title" style="font-weight:700">Открой профиль</div>
+                    <div id="chat-sub" class="muted">Выбери пользователя слева</div>
+                </div>
+                <div class="right">
+                    <div id="chat-remote-status" class="muted"></div>
+                </div>
+            </div>
+
+            <div id="chat-window"></div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div id="typing" class="typing-status"></div>
+            </div>
+
+            <div class="controls" style="margin-top:6px;">
+                <input id="chat-input" placeholder="Введите сообщение..." oninput="onInputTyping()" />
+                <button onclick="sendMessage()">Отправить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ---------- CLOCK ---------- -->
+<div id="clock" class="page center">
+    <div class="card" style="text-align:center;">
+        <h2>Часы</h2>
+        <div id="clock-time" style="font-size:40px;margin-top:8px"></div>
+    </div>
+</div>
+
+<!-- ---------- PROFILE ---------- -->
+<div id="profile" class="page center">
+    <div class="card" style="max-width:700px;">
+        <h2>Профиль</h2>
+        <div class="row">
+            <div style="flex:1">
+                <img id="profile-avatar" class="avatar-lg" src="" alt="avatar" />
+                <input id="avatar-input" type="file" accept="image/*" style="margin-top:10px" />
+                <div style="margin-top:8px"><b id="profile-name"></b></div>
+                <div class="muted" id="profile-email"></div>
+            </div>
+
+            <div style="flex:1">
+                <h3>Друзья</h3>
+                <div style="display:flex;gap:8px;">
+                    <input id="friend-input" placeholder="Имя друга" />
+                    <button onclick="addFriend()">Добавить</button>
+                </div>
+                <ul id="friends-list" style="margin-top:10px;padding-left:0"></ul>
+
+                <div style="margin-top:12px;">
+                    <button id="logout-btn" class="btn-danger" onclick="logout()">Выйти</button>
+                    <button style="margin-left:8px" onclick="exportAccount()">Экспорт</button>
+                    <button style="margin-left:8px" onclick="importAccount()">Импорт</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ---------------- Storage model & helpers ----------------
+ users stored in 'mm_users' as { email: {...} }
+ guest sessions in 'mm_guest_sessions' as { guestNick: { chats: { targetName: [ {from:'me'|'them',text,ts} ] } } }
+ current logged in email stored 'mm_current'
+----------------------------------------------------------------*/
+
+const $ = id => document.getElementById(id);
+
+function saveUsers(u){ localStorage.setItem('mm_users', JSON.stringify(u||{})); }
+function loadUsers(){ return JSON.parse(localStorage.getItem('mm_users')||'{}'); }
+
+function saveGuests(g){ localStorage.setItem('mm_guest_sessions', JSON.stringify(g||{})); }
+function loadGuests(){ return JSON.parse(localStorage.getItem('mm_guest_sessions')||'{}'); }
+
+function saveCurrent(email){ if(email) localStorage.setItem('mm_current', email); else localStorage.removeItem('mm_current'); }
+function loadCurrent(){ return localStorage.getItem('mm_current'); }
+
+/* ---------------- WebSocket client (ONLINE) ----------------
+  Простейший клиент WebSocket:
+   - регистрируется серверу при подключении: {type:'login', name}
+   - пересылает сообщения: {type:'msg', from, to, text}
+   - получает от сервера: {type:'msg', from, text, ts}
+-----------------------------------------------------------*/
+
+let ws = null;
+let WS_URL = "ws://localhost:8080"; // поменяй если у сервера другой адрес/порт
+let wsReconnectTimer = null;
+
+function connectWS(name){
+    if(!name) return;
+    // если уже подключён к тому же имени — ничего не делать
+    if(ws && ws.readyState === WebSocket.OPEN && ws._name === name) return;
+
+    if(ws){
+        try { ws.close(); } catch(e) {}
+        ws = null;
+    }
+
+    try {
+        ws = new WebSocket(WS_URL);
+    } catch(e){
+        console.warn('Ошибка создания WebSocket:', e);
+        return;
+    }
+
+    ws._name = name;
+
+    ws.onopen = () => {
+        // регистрация
+        ws.send(JSON.stringify({ type: 'login', name: name }));
+        console.log('WS open as', name);
+        // clear reconnect
+        if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+        updateRemoteStatus('online');
+    };
+
+    ws.onmessage = (ev) => {
+        try {
+            const data = JSON.parse(ev.data);
+            if(data.type === 'msg'){
+                receiveOnlineMessage(data);
+            } else if(data.type === 'presence'){
+                // future: handle presence
+                // console.log('presence', data);
+            }
+        } catch(err){
+            console.warn('WS message parse error', err);
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('WS closed');
+        updateRemoteStatus('offline');
+        // try reconnect in 1.5s
+        if(!wsReconnectTimer) wsReconnectTimer = setTimeout(()=> {
+            wsReconnectTimer = null;
+            const reconnectName = (isGuest ? guestNick : (currentUser && currentUser.name)) || null;
+            if(reconnectName) connectWS(reconnectName);
+        }, 1500);
+    };
+
+    ws.onerror = (e) => {
+        console.warn('WS error', e);
+        updateRemoteStatus('error');
+    };
+}
+
+function updateRemoteStatus(txt){
+    const el = $('chat-remote-status');
+    if(!el) return;
+    el.textContent = txt ? `WS: ${txt}` : '';
+}
+
+function receiveOnlineMessage(m){
+    // m: { type:'msg', from, text, ts }
+    // Сохраняем в локальную историю и показываем, если открыт чат с отправителем
+    const ts = m.ts || Date.now();
+
+    // если офоримлен текущий пользователь (зарегистрирован) — сохраняем в currentUser.chats
+    if(!isGuest && currentUser){
+        currentUser.chats[m.from] = currentUser.chats[m.from] || [];
+        currentUser.chats[m.from].push({ from: 'them', text: m.text, ts: ts });
+        users = loadUsers();
+        users[currentEmail] = currentUser;
+        saveUsers(users);
+    } else {
+        // если получатель — гость, никуда не сохраняем на сервере. Но можно пытаться найти гостя — оставим локально: создадим guests[...] если это тот гость на этом браузере
+        // Не трогаем guest-сессии других пользователей — оставим прежнюю логику.
+    }
+
+    // отобразить в UI, если открыт диалог с отправителем
+    if(currentDialog === m.from){
+        const win = $('chat-window');
+        const d = document.createElement('div');
+        d.className = 'message';
+        d.textContent = m.text;
+        win.appendChild(d);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    // обновить список чатов
+    renderChatList();
+}
+
+/* ----------------- end WebSocket ----------------------- */
+
+let users = loadUsers();
+let guests = loadGuests();
+let currentEmail = loadCurrent();
+let currentUser = currentEmail ? users[currentEmail] : null;
+let isGuest = false;
+let guestNick = null;
+let currentDialog = null; // target name
+let currentDialogEmail = null; // for registered target, store their email
+
+// Auto-login if user exists
+if(currentUser){
+    enterApp(currentEmail);
+} else {
+    showAuth();
+}
+
+/* ---------------- AUTH ---------------- */
+
+function showAuth(){
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    $('auth').classList.add('active');
+    $('top-menu').style.display = 'none';
+}
+
+function showRegister(){
+    showAuth();
+    $('reg-name').focus();
+}
+function showLogin(){
+    showAuth();
+    $('login-email').focus();
+}
+
+function registerUser(){
+    const name = $('reg-name').value.trim();
+    const email = $('reg-email').value.trim().toLowerCase();
+    const pass = $('reg-pass').value;
+    const pass2 = $('reg-pass2').value;
+    $('reg-error').textContent='';
+
+    if(!name){ $('reg-error').textContent='Введите имя'; return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ $('reg-error').textContent='Некорректный email'; return; }
+    if(!pass || pass.length < 4){ $('reg-error').textContent='Пароль минимум 4 символа'; return; }
+    if(pass !== pass2){ $('reg-error').textContent='Пароли не совпадают'; return; }
+
+    users = loadUsers();
+    if(users[email]){ $('reg-error').textContent='Пользователь с таким email уже существует'; return; }
+
+    users[email] = {
+        name: name,
+        email: email,
+        pass: pass,
+        avatar: '',
+        friends: [],
+        chats: {}, // chats keyed by friendName
+        theme: 'light'
+    };
+    saveUsers(users);
+
+    enterApp(email);
+}
+
+function login(){
+    const email = $('login-email').value.trim().toLowerCase();
+    const pass = $('login-password').value;
+    $('login-error').textContent='';
+
+    users = loadUsers();
+    if(!users[email]){ $('login-error').textContent='Пользователь не найден'; return; }
+    if(users[email].pass !== pass){ $('login-error').textContent='Неправильный пароль'; return; }
+
+    enterApp(email);
+}
+
+function enterAsGuest(){
+    const nick = $('guest-nick').value.trim();
+    if(!nick){ alert('Введите ник'); return; }
+    isGuest = true;
+    guestNick = nick;
+    currentEmail = null;
+    currentUser = null;
+    // ensure guest session exists
+    guests = loadGuests();
+    if(!guests[guestNick]) guests[guestNick] = { chats: {} };
+    saveGuests(guests);
+
+    // show UI
+    $('top-menu').style.display = 'flex';
+    // guests get light theme by default
+    document.documentElement.classList.remove('dark');
+
+    // show guest info in main
+    $('me-name').textContent = guestNick + ' (гость)';
+    $('me-email').textContent = '';
+    $('me-avatar').style.backgroundImage = `url(${defaultAvatar()})`;
+
+    // подключаем WebSocket под ником гостя
+    connectWS(guestNick);
+
+    openPage('chats');
+    renderChatList(); // show all registered users
+}
+
+/* ---------- enter app for registered ---------- */
+function enterApp(email){
+    users = loadUsers();
+    currentEmail = email;
+    currentUser = users[email];
+    isGuest = false;
+    guestNick = null;
+    saveCurrent(email);
+
+    $('top-menu').style.display = 'flex';
+    // apply theme
+    if(currentUser.theme === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark');
+
+    // fill profile & main
+    updateProfileUI();
+    $('me-name').textContent = currentUser.name;
+    $('me-email').textContent = currentUser.email;
+    $('me-avatar').style.backgroundImage = `url(${currentUser.avatar||defaultAvatar()})`;
+
+    // avatar input handler
+    $('avatar-input').addEventListener('change', onAvatarChange);
+
+    // подключаем WebSocket под именем текущего пользователя (используем display name)
+    connectWS(currentUser.name);
+
+    openPage('main');
+    renderChatList();
+    renderFriends();
+}
+
+/* ---------- helpers ---------- */
+function defaultAvatar(){ return 'https://i.imgur.com/4ZQZ4XH.png'; }
+
+/* ---------- PROFILE / AVATAR / FRIENDS ---------- */
+function onAvatarChange(e){
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        if(isGuest) { alert('Гости не могут менять системный аватар. Зарегистрируйтесь.'); return; }
+        currentUser.avatar = ev.target.result;
+        users[currentEmail] = currentUser; saveUsers(users);
+        $('profile-avatar').src = currentUser.avatar;
+        $('me-avatar').style.backgroundImage = `url(${currentUser.avatar})`;
+        renderChatList();
+    };
+    reader.readAsDataURL(file);
+}
+
+function updateProfileUI(){
+    if(!currentUser) return;
+    $('profile-name').textContent = currentUser.name;
+    $('profile-email').textContent = currentUser.email;
+    $('profile-avatar').src = currentUser.avatar || defaultAvatar();
+}
+
+function addFriend(){
+    if(isGuest){ alert('Только зарегистрированные пользователи могут добавлять друзей.'); return; }
+    const name = $('friend-input').value.trim();
+    if(!name) return alert('Введите имя друга');
+    if(!currentUser.friends.includes(name)){
+        currentUser.friends.push(name);
+        if(!currentUser.chats[name]) currentUser.chats[name]=[];
+        users[currentEmail]=currentUser; saveUsers(users);
+        renderFriends(); renderChatList();
+        $('friend-input').value='';
+    } else alert('Друг уже в списке');
+}
+
+function renderFriends(){
+    const ul = $('friends-list'); ul.innerHTML='';
+    if(isGuest){ ul.innerHTML = '<li class="muted">Гость не имеет списка друзей</li>'; return; }
+    currentUser.friends.forEach(fr=>{
+        const li = document.createElement('li');
+        li.textContent = fr;
+        const btn = document.createElement('button'); btn.textContent='Чат'; btn.onclick = ()=> { openChat(fr); openPage('chats'); };
+        li.appendChild(btn);
+        const del = document.createElement('button'); del.textContent='×'; del.style.marginLeft='8px';
+        del.onclick = ()=> {
+            if(confirm('Удалить друга '+fr+'?')){
+                currentUser.friends = currentUser.friends.filter(x=>x!==fr);
+                delete currentUser.chats[fr];
+                users[currentEmail]=currentUser; saveUsers(users);
+                renderFriends(); renderChatList();
+            }
+        };
+        li.appendChild(del);
+        ul.appendChild(li);
+    });
+}
+
+/* ---------- Chat list & last message helper (variant 4) ---------- */
+
+function getAllRegisteredUsersSorted(){
+    users = loadUsers();
+    // convert to array of {email,name,avatar,lastMsg,lastTs}
+    const arr = Object.values(users).map(u=>{
+        const last = getLastMessageForUser(u);
+        return { email: u.email, name: u.name, avatar: u.avatar||defaultAvatar(), lastMsg: last.text, lastTs: last.ts };
+    });
+    // sort by lastTs desc (unknown at bottom)
+    arr.sort((a,b)=> (b.lastTs||0) - (a.lastTs||0));
+    return arr;
+}
+
+function getLastMessageForUser(user){
+    // look into all chats of user and find latest message
+    let latest = { text: 'Нет сообщений', ts: 0 };
+    if(!user.chats) return latest;
+    for(const [peer, arr] of Object.entries(user.chats)){
+        if(!Array.isArray(arr)) continue;
+        for(const m of arr){
+            if(m.ts && m.ts > (latest.ts||0)){
+                latest = { text: m.text, ts: m.ts };
+            }
+        }
+    }
+    return latest;
+}
+
+function formatTime(ts){
+    if(!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    if(sameDay) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    return d.toLocaleDateString();
+}
+
+/* Render chat list: when logged in (registered) show friends; when guest show all registered users */
+function renderChatList(){
+    const list = $('chat-list'); list.innerHTML='';
+    if(isGuest){
+        // show all registered users in variant 4 style
+        const regs = getAllRegisteredUsersSorted();
+        regs.forEach(u=>{
+            const item = document.createElement('div'); item.className='chat-item';
+            if(currentDialog === u.name) item.classList.add('active');
+
+            const av = document.createElement('div'); av.className='avatar-sm'; av.style.backgroundImage = `url(${u.avatar})`;
+            item.appendChild(av);
+
+            const meta = document.createElement('div'); meta.style.flex='1';
+            const top = document.createElement('div'); top.style.display='flex'; top.style.justifyContent='space-between';
+            const name = document.createElement('div'); name.style.fontWeight='700'; name.textContent = u.name;
+            const time = document.createElement('div'); time.className='chat-time'; time.textContent = formatTime(u.lastTs);
+            top.appendChild(name); top.appendChild(time);
+
+            const bottom = document.createElement('div'); bottom.style.display='flex'; bottom.style.justifyContent='space-between';
+            const last = document.createElement('div'); last.className='chat-last'; last.textContent = u.lastMsg || '';
+            const action = document.createElement('div'); action.innerHTML = '<button style="padding:6px 8px;border-radius:8px;border:none;background:var(--accent);color:white">Открыть</button>';
+            action.querySelector('button').onclick = (e)=> { e.stopPropagation(); openChatWithRegistered(u.email); openPage('chats'); };
+
+            bottom.appendChild(last); bottom.appendChild(action);
+
+            meta.appendChild(top); meta.appendChild(bottom);
+            item.appendChild(meta);
+            // click also opens
+            item.onclick = ()=>{ openChatWithRegistered(u.email); openPage('chats'); };
+            list.appendChild(item);
+        });
+        if(regs.length===0){
+            const hint = document.createElement('div'); hint.className='muted'; hint.textContent='Зарегистрированных пользователей пока нет';
+            list.appendChild(hint);
+        }
+    } else {
+        // registered user: show their friends (or all users if friends empty)
+        if(currentUser.friends && currentUser.friends.length>0){
+            currentUser.friends.forEach(name=>{
+                const item = document.createElement('div'); item.className='chat-item';
+                if(currentDialog === name) item.classList.add('active');
+
+                const av = document.createElement('div'); av.className='avatar-sm'; av.style.backgroundImage = `url(${currentUser.avatar||defaultAvatar()})`;
+                item.appendChild(av);
+
+                const meta = document.createElement('div'); meta.style.flex='1';
+                const top = document.createElement('div'); top.style.display='flex'; top.style.justifyContent='space-between';
+                const nm = document.createElement('div'); nm.style.fontWeight='700'; nm.textContent = name;
+                const time = document.createElement('div'); time.className='chat-time';
+                const last = getLastInChat(currentUser, name);
+                time.textContent = formatTime(last.ts);
+                top.appendChild(nm); top.appendChild(time);
+
+                const bottom = document.createElement('div'); bottom.style.display='flex'; bottom.style.justifyContent='space-between';
+                const l = document.createElement('div'); l.className='chat-last'; l.textContent = last.text || '';
+                const act = document.createElement('div'); act.innerHTML = '<button style="padding:6px 8px;border-radius:8px;border:none;background:var(--accent);color:white">Открыть</button>';
+                act.querySelector('button').onclick = (e)=>{ e.stopPropagation(); openChat(name); openPage('chats'); };
+                bottom.appendChild(l); bottom.appendChild(act);
+
+                meta.appendChild(top); meta.appendChild(bottom);
+                item.appendChild(meta);
+                item.onclick = ()=> openChat(name);
+                list.appendChild(item);
+            });
+        } else {
+            // no friends -> show all registered users for convenience
+            const regs = getAllRegisteredUsersSorted();
+            regs.forEach(u=>{
+                // skip self
+                if(u.email === currentEmail) return;
+                const item = document.createElement('div'); item.className='chat-item';
+                const av = document.createElement('div'); av.className='avatar-sm'; av.style.backgroundImage = `url(${u.avatar})`;
+                item.appendChild(av);
+                const meta = document.createElement('div'); meta.style.flex='1';
+                const top = document.createElement('div'); top.style.display='flex'; top.style.justifyContent='space-between';
+                const name = document.createElement('div'); name.style.fontWeight='700'; name.textContent = u.name;
+                const time = document.createElement('div'); time.className='chat-time'; time.textContent = formatTime(u.lastTs);
+                top.appendChild(name); top.appendChild(time);
+                const bottom = document.createElement('div'); bottom.style.display='flex'; bottom.style.justifyContent='space-between';
+                const last = document.createElement('div'); last.className='chat-last'; last.textContent = u.lastMsg || '';
+                const action = document.createElement('div'); action.innerHTML = '<button style="padding:6px 8px;border-radius:8px;border:none;background:var(--accent);color:white">Открыть</button>';
+                action.querySelector('button').onclick = (e)=>{ e.stopPropagation(); openChatWithRegistered(u.email); openPage('chats'); };
+                bottom.appendChild(last); bottom.appendChild(action);
+                meta.appendChild(top); meta.appendChild(bottom);
+                item.appendChild(meta);
+                item.onclick = ()=> { openChatWithRegistered(u.email); openPage('chats'); };
+                list.appendChild(item);
+            });
+            if(regs.length===0){ const hint = document.createElement('div'); hint.className='muted'; hint.textContent='Пользователей пока нет'; list.appendChild(hint); }
+        }
+    }
+}
+
+/* utility: get last message between a registered user and a friendName (for registered view) */
+function getLastInChat(userObj, friendName){
+    let last = { text:'', ts:0 };
+    if(!userObj.chats || !userObj.chats[friendName]) return last;
+    const arr = userObj.chats[friendName];
+    for(const m of arr){
+        if(m.ts > (last.ts||0)) { last = { text: m.text, ts: m.ts }; }
+    }
+    return last;
+}
+
+/* ---------- Opening chat logic ---------- */
+
+/* open chat with registered user (used by guest and registered) */
+function openChatWithRegistered(email){
+    users = loadUsers();
+    const target = users[email];
+    if(!target) { alert('Пользователь не найден'); return; }
+    currentDialog = target.name;
+    currentDialogEmail = email;
+    // prepare conversation by merging guest session (if any) and target's chat with guest (if guest)
+    renderConversationForCurrent();
+    // set UI title
+    $('chat-title').textContent = target.name;
+    $('chat-sub').textContent = 'Профиль: ' + target.email;
+    $('chat-title-avatar').style.backgroundImage = `url(${target.avatar||defaultAvatar()})`;
+    renderChatList();
+}
+
+/* openChat when registered user clicks friend name (friendName string) */
+function openChat(name){
+    if(isGuest){
+        // if guest clicks friend name, find registered user with that name
+        const regs = Object.values(loadUsers());
+        const found = regs.find(u => u.name === name);
+        if(found) {
+            openChatWithRegistered(found.email);
+            return;
+        } else {
+            alert('Пользователь не найден');
+            return;
+        }
+    }
+    // registered user opening chat with friend
+    currentDialog = name;
+    // try to find if this friend corresponds to registered user (to get avatar/email)
+    const regs = Object.values(loadUsers());
+    const found = regs.find(u => u.name === name);
+    currentDialogEmail = found ? found.email : null;
+    $('chat-title').textContent = name;
+    $('chat-sub').textContent = found ? found.email : 'Локальный контакт';
+    $('chat-title-avatar').style.backgroundImage = `url(${(found && found.avatar) || currentUser.avatar || defaultAvatar()})`;
+    renderConversationForCurrent();
+    renderChatList();
+}
+
+/* produce conversation view depending on isGuest/currentUser */
+function renderConversationForCurrent(){
+    const win = $('chat-window'); win.innerHTML = '';
+    if(!currentDialog) return;
+    // collect messages:
+    // if guest -> merge guests[guestNick].chats[targetName] and users[targetEmail].chats[guestNick] (if exist)
+    if(isGuest){
+        guests = loadGuests();
+        const guestSession = guests[guestNick] || { chats: {} };
+        const targetName = currentDialog;
+        const targetEmail = findEmailByName(targetName);
+        const targetUser = targetEmail ? (loadUsers()[targetEmail]||null) : null;
+
+        const arrGuest = (guestSession.chats[targetName]||[]).map(m => ({...m, _source:'guest'}));
+        const arrTarget = (targetUser && targetUser.chats && targetUser.chats[guestNick]) ? (targetUser.chats[guestNick].map(m=>({...m, _source:'target'}))) : [];
+
+        // unify & sort by ts
+        const merged = arrGuest.concat(arrTarget).sort((a,b)=> (a.ts||0) - (b.ts||0));
+        merged.forEach(m=>{
+            const d = document.createElement('div');
+            // messages from guest (arrGuest) were saved with from: 'me' for guest; target's messages are from:'them' in targetUser.chats (we stored that way)
+            const cls = (isGuest && (m.from==='me' || m._source==='guest')) ? 'message me' : 'message';
+            d.className = cls;
+            d.textContent = m.text;
+            win.appendChild(d);
+        });
+    } else {
+        // registered user: show messages from currentUser.chats[currentDialog] (if present)
+        if(!currentUser.chats[currentDialog]) currentUser.chats[currentDialog]=[];
+        const arr = currentUser.chats[currentDialog];
+        arr.forEach(m=>{
+            const d = document.createElement('div');
+            d.className = (m.from === 'me') ? 'message me' : 'message';
+            d.textContent = m.text;
+            win.appendChild(d);
+        });
+    }
+    win.scrollTop = win.scrollHeight;
+}
+
+/* helper: find registered user's email by their name (first match) */
+function findEmailByName(name){
+    users = loadUsers();
+    for(const em in users){
+        if(users[em].name === name) return em;
+    }
+    return null;
+}
+
+/* ---------- sending messages ---------- */
+
+function sendMessage(){
+    const txtEl = $('chat-input');
+    const text = txtEl.value.trim();
+    if(!text) return;
+    const ts = Date.now();
+
+    if(isGuest){
+        if(!currentDialog) { alert('Выберите пользователя'); return; }
+        // guestSend: save in guest session
+        guests = loadGuests();
+        if(!guests[guestNick]) guests[guestNick] = { chats: {} };
+        if(!guests[guestNick].chats[currentDialog]) guests[guestNick].chats[currentDialog] = [];
+        const gm = { from:'me', text:text, ts:ts };
+        guests[guestNick].chats[currentDialog].push(gm);
+        saveGuests(guests);
+
+        // also append to target registered user's chats as incoming (so they will see it later)
+        const targetEmail = findEmailByName(currentDialog);
+        if(targetEmail){
+            users = loadUsers();
+            if(!users[targetEmail].chats[currentDialog]) users[targetEmail].chats[guestNick] = users[targetEmail].chats[guestNick] || [];
+            // For the registered user's storage, represent guest message as from: 'them' (incoming)
+            users[targetEmail].chats[guestNick].push({ from:'them', text:text, ts:ts });
+            saveUsers(users);
+        }
+
+        // онлайн-отправка, если WebSocket подключён
+        if (ws && ws.readyState === WebSocket.OPEN && currentDialog) {
+            try {
+                ws.send(JSON.stringify({
+                    type: 'msg',
+                    from: guestNick,
+                    to: currentDialog,
+                    text: text,
+                    ts: ts
+                }));
+            } catch(e){ console.warn('WS send error', e); }
+        }
+
+        // render
+        renderConversationForCurrent();
+        txtEl.value = '';
+        // optional: simulate auto reply? мы не делаем
+    } else {
+        // registered user sending to currentDialog
+        if(!currentDialog) { alert('Выберите чат'); return; }
+        // ensure chats map exists
+        if(!currentUser.chats[currentDialog]) currentUser.chats[currentDialog] = [];
+        const m = { from:'me', text:text, ts:ts };
+        currentUser.chats[currentDialog].push(m);
+        users[currentEmail] = currentUser; saveUsers(users);
+
+        // if recipient is a guest session, mirror message into guest session as 'them'
+        const guestSess = loadGuests();
+        // If currentDialog matches some guestNick in guestSessions, push into guest session
+        if(guestSess[currentDialog]){
+            if(!guestSess[currentDialog].chats[currentUser.name]) guestSess[currentDialog].chats[currentUser.name] = [];
+            guestSess[currentDialog].chats[currentUser.name].push({ from:'them', text:text, ts:ts });
+            saveGuests(guestSess);
+        } else {
+            // if recipient is registered (exists by name) also mirror message into their chats as incoming
+            const targetEmail = findEmailByName(currentDialog);
+            if(targetEmail){
+                users = loadUsers();
+                users[targetEmail].chats[currentUser.name] = users[targetEmail].chats[currentUser.name] || [];
+                users[targetEmail].chats[currentUser.name].push({ from:'them', text:text, ts:ts });
+                saveUsers(users);
+            }
+        }
+
+        // онлайн-отправка, если WebSocket подключён
+        if (ws && ws.readyState === WebSocket.OPEN && currentDialog) {
+            try {
+                ws.send(JSON.stringify({
+                    type: 'msg',
+                    from: currentUser.name,
+                    to: currentDialog,
+                    text: text,
+                    ts: ts
+                }));
+            } catch(e){ console.warn('WS send error', e); }
+        }
+
+        // render
+        renderConversationForCurrent();
+        txtEl.value = '';
+    }
+
+    // update lists
+    renderChatList();
+}
+
+/* ---------- typing status ---------- */
+let typingTimer;
+function onInputTyping(){
+    if(!currentDialog) return;
+    $('typing').textContent = (isGuest ? guestNick : currentUser.name) + ' печатает...';
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(()=> $('typing').textContent = '', 900);
+}
+
+/* ---------- Theme per registered user ---------- */
+function toggleTheme(){
+    if(isGuest){
+        // guest toggles page theme temporarily
+        document.documentElement.classList.toggle('dark');
+        return;
+    }
+    currentUser.theme = (currentUser.theme === 'dark') ? 'light' : 'dark';
+    users[currentEmail] = currentUser; saveUsers(users);
+    if(currentUser.theme === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark');
+}
+
+/* ---------- Clock ---------- */
+setInterval(()=> { $('clock-time').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+/* ---------- Logout / Export / Import ---------- */
+
+function logout(){
+    if(!confirm('Выйти из аккаунта?')) return;
+    saveCurrent(null);
+    currentEmail = null; currentUser = null;
+    $('top-menu').style.display = 'none';
+    isGuest = false; guestNick = null;
+
+    // закрываем WebSocket при выходе
+    if(ws){ try{ ws.close(); } catch(e){} ws = null; }
+
+    showAuth();
+}
+
+function exportAccount(){
+    if(!currentUser) return alert('Нет пользователя');
+    const data = JSON.stringify(currentUser, null, 2);
+    const blob = new Blob([data], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `${currentUser.email.replace(/[@.]/g,'_')}_account.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function importAccount(){
+    const input = document.createElement('input');
+    input.type='file'; input.accept='application/json';
+    input.onchange = e => {
+        const f = e.target.files[0]; if(!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+            try{
+                const obj = JSON.parse(ev.target.result);
+                if(!obj.email || !obj.pass) return alert('Неверный формат файла');
+                users = loadUsers(); users[obj.email] = obj; saveUsers(users);
+                alert('Аккаунт импортирован. Можно войти.');
+            }catch(err){ alert('Ошибка импорта'); }
+        };
+        r.readAsText(f);
+    };
+    input.click();
+}
+
+/* ---------- initial UI wiring ---------- */
+
+// openPage wrapper to show/hide pages but keep top menu visible when logged in/guest
+function openPage(id){
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    // show top menu only if logged in or guest
+    if(currentUser || isGuest) $('top-menu').style.display = 'flex';
+    if(id==='profile') updateProfileUI();
+    if(id==='chats') renderChatList();
+}
+
+// allow Enter key for forms/messages
+document.addEventListener('keydown', function(e){
+    if(e.key==='Enter'){
+        const active = document.activeElement;
+        if(active === $('login-password') || active === $('login-email')) login();
+        if(active === $('reg-pass2')) registerUser();
+        if(active === $('guest-nick')) enterAsGuest();
+        if(active === $('chat-input')) sendMessage();
+    }
+});
+
+// initial render for auth (if no users)
+renderChatListOnStart();
+
+function renderChatListOnStart(){
+    // if user already logged in and entered via enterApp, renderChatList called there
+    if(!currentUser && !isGuest){
+        // show nothing until login
+        return;
+    }
+}
+
+/* ensure UI updates when switching pages via top menu */
+document.getElementById('top-menu').addEventListener('click', ()=> {
+    // re-render list if necessary
+});
+
+/* make sure chat list reacts to storage changes (simple) */
+window.addEventListener('storage', ()=> { users = loadUsers(); guests = loadGuests(); renderChatList(); });
+
+/* close ws on unload */
+window.addEventListener('beforeunload', ()=> {
+    if(ws) try{ ws.close(); }catch(e){}
+});
+
+</script>
+</body>
+</html>
